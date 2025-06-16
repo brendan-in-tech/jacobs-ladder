@@ -5,12 +5,9 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from base64 import urlsafe_b64decode
-import email
 from flask import session
 import re
 import requests
-import time
-import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
