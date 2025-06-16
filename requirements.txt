@@ -1,0 +1,11 @@
+Flask
+flask-cors
+google-auth
+google-auth-oauthlib
+google-api-python-client
+requests
+python-dotenv
+pytest
+coverage
+Flask-Session
+Flask-WTF 
