@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .env
 .credentials
+.env.example
 
 # Node
 node_modules/
