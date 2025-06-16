@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 .env
+.credentials
 
 # Node
 node_modules/
