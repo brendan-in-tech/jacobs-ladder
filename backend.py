@@ -1,6 +1,6 @@
-from flask import Flask, jsonify, request, session, redirect, url_for
+from flask import Flask, jsonify, request, session, redirect
 from flask_cors import CORS
-from gmail_fetcher import fetch_emails, get_gmail_service, get_history_id, get_new_emails
+from email_utils.gmail_fetcher import GmailFetcher
 import logging
 import os
 from google_auth_oauthlib.flow import Flow
@@ -83,7 +83,7 @@ def get_emails():
     if not user:
         return jsonify({'error': 'Unauthorized'}), 401
     try:
-        emails = fetch_emails()
+        emails = GmailFetcher.fetch_emails()
         logger.debug(f"Successfully fetched {len(emails)} emails")
         return jsonify(emails)
     except Exception as e:
@@ -99,20 +99,20 @@ def check_new_emails():
         return jsonify({'error': 'Unauthorized'}), 401
     
     try:
-        gmail_service, _ = get_gmail_service()
+        gmail_service, _ = GmailFetcher.get_gmail_service()
         
         # Get the last history ID from session or get current one
         last_history_id = session.get('last_history_id')
         if not last_history_id:
-            last_history_id = get_history_id(gmail_service)
+            last_history_id = GmailFetcher.get_history_id(gmail_service)
             session['last_history_id'] = last_history_id
         
         # Get new emails
-        new_emails = get_new_emails(gmail_service, last_history_id)
+        new_emails = GmailFetcher.get_new_emails(gmail_service, last_history_id)
         
         # Update last history ID
         if new_emails:
-            current_history_id = get_history_id(gmail_service)
+            current_history_id = GmailFetcher.get_history_id(gmail_service)
             session['last_history_id'] = current_history_id
         
         return jsonify({
