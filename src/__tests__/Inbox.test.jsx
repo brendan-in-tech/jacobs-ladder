@@ -7,32 +7,82 @@ const mockUser = {
   photo: 'https://example.com/photo.jpg'
 };
 
-const mockEmails = [
+const mockThreads = [
   {
-    id: '1',
-    sender: 'Alice',
-    sender_photo: '',
-    from: 'Alice <alice@example.com>',
-    to: 'test@example.com',
+    threadId: 'thread1',
+    messages: [
+      {
+        id: '1',
+        sender: 'Alice',
+        sender_photo: '',
+        from: 'Alice <alice@example.com>',
+        to: 'test@example.com',
+        subject: 'Hello',
+        snippet: 'Hi there!',
+        internalDate: Date.now().toString(),
+        date: new Date().toISOString(),
+        body: 'Hi there!',
+        body_type: 'plain',
+        attachments: []
+      }
+    ],
+    messageCount: 1,
+    latestMessage: {
+      id: '1',
+      sender: 'Alice',
+      sender_photo: '',
+      from: 'Alice <alice@example.com>',
+      to: 'test@example.com',
+      subject: 'Hello',
+      snippet: 'Hi there!',
+      internalDate: Date.now().toString(),
+      date: new Date().toISOString(),
+      body: 'Hi there!',
+      body_type: 'plain',
+      attachments: []
+    },
     subject: 'Hello',
-    snippet: 'Hi there!',
-    date: new Date().toISOString(),
-    body: 'Hi there!',
-    body_type: 'plain',
-    attachments: []
+    participants: ['Alice'],
+    latestDate: Date.now().toString(),
+    snippet: 'Hi there!'
   },
   {
-    id: '2',
-    sender: 'Bob',
-    sender_photo: '',
-    from: 'Bob <bob@example.com>',
-    to: 'test@example.com',
+    threadId: 'thread2',
+    messages: [
+      {
+        id: '2',
+        sender: 'Bob',
+        sender_photo: '',
+        from: 'Bob <bob@example.com>',
+        to: 'test@example.com',
+        subject: 'Update',
+        snippet: 'Here is an update.',
+        internalDate: (Date.now() - 1000).toString(),
+        date: new Date(Date.now() - 1000).toISOString(),
+        body: 'Here is an update.',
+        body_type: 'plain',
+        attachments: []
+      }
+    ],
+    messageCount: 1,
+    latestMessage: {
+      id: '2',
+      sender: 'Bob',
+      sender_photo: '',
+      from: 'Bob <bob@example.com>',
+      to: 'test@example.com',
+      subject: 'Update',
+      snippet: 'Here is an update.',
+      internalDate: (Date.now() - 1000).toString(),
+      date: new Date(Date.now() - 1000).toISOString(),
+      body: 'Here is an update.',
+      body_type: 'plain',
+      attachments: []
+    },
     subject: 'Update',
-    snippet: 'Here is an update.',
-    date: new Date().toISOString(),
-    body: 'Here is an update.',
-    body_type: 'plain',
-    attachments: []
+    participants: ['Bob'],
+    latestDate: (Date.now() - 1000).toString(),
+    snippet: 'Here is an update.'
   }
 ];
 
@@ -47,7 +97,7 @@ beforeAll(() => {
     if (url.endsWith('/fetch-emails')) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(mockEmails)
+        json: () => Promise.resolve(mockThreads)
       });
     }
     if (url.endsWith('/')) {
@@ -65,12 +115,12 @@ afterAll(() => {
   vi.restoreAllMocks && vi.restoreAllMocks();
 });
 
-test('renders inbox and emails when authenticated', async () => {
+test('renders inbox and threads when authenticated', async () => {
   render(<App />);
   // Wait for inbox to appear
   const inboxHeading = await screen.findByText(/inbox/i);
   expect(inboxHeading).toBeInTheDocument();
-  // Emails should be rendered
+  // Threads should be rendered
   expect(await screen.findByText('Alice')).toBeInTheDocument();
   expect(await screen.findByText('Bob')).toBeInTheDocument();
   expect(screen.getByText('Hello')).toBeInTheDocument();
@@ -79,9 +129,9 @@ test('renders inbox and emails when authenticated', async () => {
 
 test('opens and closes email modal', async () => {
   render(<App />);
-  // Wait for emails
-  const emailItem = await screen.findByText('Alice');
-  fireEvent.click(emailItem);
+  // Wait for threads
+  const threadItem = await screen.findByText('Alice');
+  fireEvent.click(threadItem);
   // Modal should open
   expect(await screen.findByText(/from:/i)).toBeInTheDocument();
   // Close modal
@@ -92,7 +142,7 @@ test('opens and closes email modal', async () => {
   });
 });
 
-test('logout returns to login form and clears emails', async () => {
+test('logout returns to login form and clears threads', async () => {
   render(<App />);
   // Wait for inbox
   await screen.findByText(/inbox/i);
@@ -101,7 +151,7 @@ test('logout returns to login form and clears emails', async () => {
   fireEvent.click(logoutBtn);
   // Login form should appear
   expect(await screen.findByText(/sign in to gmail template/i)).toBeInTheDocument();
-  // Emails should be cleared
+  // Threads should be cleared
   expect(screen.queryByText('Alice')).not.toBeInTheDocument();
 });
 

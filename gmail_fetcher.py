@@ -210,8 +210,42 @@ def get_history_id(service):
         logger.error(f"Error getting history ID: {e}")
         return None
 
+def group_emails_by_thread(emails):
+    """Group emails by threadId and create thread objects."""
+    thread_groups = {}
+    
+    for email in emails:
+        thread_id = email.get('threadId')
+        if thread_id not in thread_groups:
+            thread_groups[thread_id] = []
+        thread_groups[thread_id].append(email)
+    
+    threads = []
+    for thread_id, messages in thread_groups.items():
+        # Sort messages within thread by date (newest first)
+        messages.sort(key=lambda x: x.get('internalDate', 0), reverse=True)
+        
+        # Create thread object
+        thread_obj = {
+            'threadId': thread_id,
+            'messages': messages,
+            'messageCount': len(messages),
+            'latestMessage': messages[0],  # First after sorting (newest)
+            'subject': messages[0].get('subject', 'No Subject'),
+            'participants': list(set([
+                msg.get('sender', 'Unknown') for msg in messages
+            ])),
+            'latestDate': messages[0].get('internalDate', 0),
+            'snippet': messages[0].get('snippet', '')
+        }
+        threads.append(thread_obj)
+    
+    # Sort threads by latest message date (newest first)
+    threads.sort(key=lambda x: x.get('latestDate', 0), reverse=True)
+    return threads
+
 def get_new_emails(service, history_id):
-    """Get new emails since the last history ID."""
+    """Get new emails since the last history ID and return them as threads."""
     try:
         # Get history list
         history_list = service.users().history().list(
@@ -236,65 +270,100 @@ def get_new_emails(service, history_id):
                             if email_content:
                                 new_emails.append(email_content)
 
-        return new_emails
+        # Group emails by thread and return threads
+        return group_emails_by_thread(new_emails)
     except Exception as e:
         logger.error(f"Error getting new emails: {e}")
         return []
 
-def fetch_emails(max_results=10):
-    """Fetch emails from Gmail and enrich with sender photo or company logo."""
+def fetch_threads(max_results=10):
+    """Fetch email threads from Gmail and enrich with sender photo or company logo."""
     try:
         gmail_service, people_service = get_gmail_service()
         
-        # Get list of messages
-        results = gmail_service.users().messages().list(
+        # Get list of threads
+        results = gmail_service.users().threads().list(
             userId='me', maxResults=max_results).execute()
-        messages = results.get('messages', [])
+        threads = results.get('threads', [])
         
-        if not messages:
-            logger.info('No messages found.')
+        if not threads:
+            logger.info('No threads found.')
             return []
         
-        logger.info(f'Found {len(messages)} messages.')
+        logger.info(f'Found {len(threads)} threads.')
         
-        # Fetch each message
-        email_list = []
-        for message in messages:
-            msg = gmail_service.users().messages().get(
-                userId='me', id=message['id']).execute()
+        # Fetch each thread with all its messages
+        thread_list = []
+        for thread in threads:
+            thread_detail = gmail_service.users().threads().get(
+                userId='me', id=thread['id']).execute()
             
-            email_content = get_email_content(msg)
-            if email_content:
-                # Try to get profile photo for the sender
-                if email_content['sender_email']:
-                    # First try to get Google profile photo
-                    photo_url = get_profile_photo(people_service, email_content['sender_email'])
-                    if photo_url:
-                        email_content['sender_photo'] = photo_url
-                    else:
-                        # If no Google photo, try to get company logo
-                        company_logo = get_company_logo(email_content['sender_email'])
-                        if company_logo:
-                            email_content['sender_photo'] = company_logo
+            messages = thread_detail.get('messages', [])
+            if not messages:
+                continue
+            
+            # Process all messages in the thread
+            thread_messages = []
+            for message in messages:
+                email_content = get_email_content(message)
+                if email_content:
+                    # Try to get profile photo for the sender
+                    if email_content['sender_email']:
+                        # First try to get Google profile photo
+                        photo_url = get_profile_photo(people_service, email_content['sender_email'])
+                        if photo_url:
+                            email_content['sender_photo'] = photo_url
+                        else:
+                            # If no Google photo, try to get company logo
+                            company_logo = get_company_logo(email_content['sender_email'])
+                            if company_logo:
+                                email_content['sender_photo'] = company_logo
+                    
+                    thread_messages.append(email_content)
+            
+            if thread_messages:
+                # Sort messages within thread by date (newest first)
+                thread_messages.sort(key=lambda x: x.get('internalDate', 0), reverse=True)
                 
-                email_list.append(email_content)
+                # Create thread object with metadata
+                thread_obj = {
+                    'threadId': thread['id'],
+                    'messages': thread_messages,
+                    'messageCount': len(thread_messages),
+                    'latestMessage': thread_messages[0],  # First after sorting (newest)
+                    'subject': thread_messages[0].get('subject', 'No Subject'),
+                    'participants': list(set([
+                        msg.get('sender', 'Unknown') for msg in thread_messages
+                    ])),
+                    'latestDate': thread_messages[0].get('internalDate', 0),
+                    'snippet': thread_messages[0].get('snippet', '')
+                }
+                
+                thread_list.append(thread_obj)
                 logger.info('\n' + '='*50)
-                logger.info(f'From: {email_content["sender"]}')
-                logger.info(f'Subject: {email_content["subject"]}')
-                logger.info('-'*50)
-                logger.info(f'Body: {email_content["body"][:200]}...')  # Show first 200 chars
+                logger.info(f'Thread: {thread_obj["subject"]}')
+                logger.info(f'Messages: {thread_obj["messageCount"]}')
+                logger.info(f'Participants: {", ".join(thread_obj["participants"])}')
                 logger.info('='*50)
+        
+        # Sort threads by latest message date (newest first)
+        thread_list.sort(key=lambda x: x.get('latestDate', 0), reverse=True)
         
         # Start watching for new emails
         watch_response = start_watch(gmail_service)
         if watch_response:
             logger.info(f"Started watching for new emails. Expiration: {watch_response.get('expiration')}")
         
-        return email_list
+        return thread_list
     
     except Exception as e:
         logger.error(f'An error occurred: {e}')
         raise e
+
+def fetch_emails(max_results=10):
+    """Fetch emails from Gmail and enrich with sender photo or company logo.
+    This function now returns threads instead of individual emails for better organization."""
+    return fetch_threads(max_results)
 
 if __name__ == '__main__':
     fetch_emails() 

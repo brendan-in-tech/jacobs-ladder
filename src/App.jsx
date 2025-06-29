@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { EnvelopeIcon, PaperAirplaneIcon, CalendarIcon, StarIcon } from '@heroicons/react/24/outline'
 import EmailModal from './components/EmailModal'
+import EmailThread from './components/EmailThread'
 import Login from './components/Login'
 
 function App() {
-  const [emails, setEmails] = useState(() => {
+  const [threads, setThreads] = useState(() => {
     // Initialize from localStorage if available
-    const savedEmails = localStorage.getItem('emails')
-    return savedEmails ? JSON.parse(savedEmails) : []
+    const savedThreads = localStorage.getItem('email_threads')
+    return savedThreads ? JSON.parse(savedThreads) : []
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -16,13 +17,23 @@ function App() {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [lastCheck, setLastCheck] = useState(Date.now())
+  const [expandedThreads, setExpandedThreads] = useState(() => {
+    // Initialize expanded threads from localStorage
+    const savedExpanded = localStorage.getItem('expanded_threads')
+    return savedExpanded ? JSON.parse(savedExpanded) : []
+  })
 
-  // Save emails to localStorage whenever they change
+  // Save threads to localStorage whenever they change
   useEffect(() => {
-    if (emails.length > 0) {
-      localStorage.setItem('emails', JSON.stringify(emails))
+    if (threads.length > 0) {
+      localStorage.setItem('email_threads', JSON.stringify(threads))
     }
-  }, [emails])
+  }, [threads])
+
+  // Save expanded threads to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('expanded_threads', JSON.stringify(expandedThreads))
+  }, [expandedThreads])
 
   // Poll for new emails every 30 seconds
   useEffect(() => {
@@ -44,13 +55,13 @@ function App() {
         }
 
         const data = await response.json()
-        if (data.has_new && data.new_emails) {
-          // Add new emails to the beginning of the list
-          setEmails(prevEmails => {
-            const newEmails = data.new_emails
-            const existingIds = new Set(prevEmails.map(email => email.id))
-            const uniqueNewEmails = newEmails.filter(email => !existingIds.has(email.id))
-            return [...uniqueNewEmails, ...prevEmails]
+        if (data.has_new && data.new_threads) {
+          // Add new threads to the beginning of the list
+          setThreads(prevThreads => {
+            const newThreads = data.new_threads
+            const existingThreadIds = new Set(prevThreads.map(thread => thread.threadId))
+            const uniqueNewThreads = newThreads.filter(thread => !existingThreadIds.has(thread.threadId))
+            return [...uniqueNewThreads, ...prevThreads]
           })
         }
         setLastCheck(Date.now())
@@ -63,23 +74,25 @@ function App() {
     return () => clearInterval(interval)
   }, [user])
 
-  // Clear emails from localStorage on logout
+  // Clear threads from localStorage on logout
   const handleLogout = async () => {
     await fetch('http://localhost:5001/logout', {
       method: 'POST',
       credentials: 'include',
     })
     setUser(null)
-    setEmails([])
+    setThreads([])
     setSelectedEmail(null)
-    localStorage.removeItem('emails')
+    setExpandedThreads([])
+    localStorage.removeItem('email_threads')
+    localStorage.removeItem('expanded_threads')
   }
 
   // Format date for email list
   const formatDate = (date) => {
     if (!date) return ''
     const now = new Date()
-    const emailDate = new Date(date)
+    const emailDate = new Date(parseInt(date))
     const diffDays = Math.floor((now - emailDate) / (1000 * 60 * 60 * 24))
 
     if (diffDays === 0) {
@@ -128,9 +141,9 @@ function App() {
       .then(data => {
         if (data.user) {
           setUser(data.user)
-          // If we have a user but no emails, fetch them
-          if (emails.length === 0) {
-            fetchEmails()
+          // If we have a user but no threads, fetch them
+          if (threads.length === 0) {
+            fetchThreads()
           }
         }
         setAuthLoading(false)
@@ -141,13 +154,13 @@ function App() {
   const handleLogin = (user) => {
     setUser(user)
     setError(null)
-    // If we have a user but no emails, fetch them
-    if (emails.length === 0) {
-      fetchEmails()
+    // If we have a user but no threads, fetch them
+    if (threads.length === 0) {
+      fetchThreads()
     }
   }
 
-  const fetchEmails = async () => {
+  const fetchThreads = async () => {
     setLoading(true)
     setError(null)
     try {
@@ -166,13 +179,31 @@ function App() {
       }
       
       const data = await response.json()
-      setEmails(data)
+      
+      // Validate that we received thread data
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid response format: expected array of threads')
+      }
+      
+      // Validate thread structure
+      const validThreads = data.filter(thread => 
+        thread && 
+        thread.threadId && 
+        Array.isArray(thread.messages) && 
+        thread.latestMessage
+      )
+      
+      if (validThreads.length !== data.length) {
+        console.warn('Some threads were invalid and have been filtered out')
+      }
+      
+      setThreads(validThreads)
     } catch (err) {
-      console.error('Error fetching emails:', err)
+      console.error('Error fetching threads:', err)
       if (err.message.includes('Failed to fetch')) {
         setError('Unable to connect to the server. Please make sure the backend is running on port 5001.')
       } else {
-        setError(err.message || 'Failed to fetch emails. Please try again.')
+        setError(err.message || 'Failed to fetch threads. Please try again.')
       }
     }
     setLoading(false)
@@ -212,7 +243,7 @@ function App() {
                 </div>
               )}
               <button
-                onClick={fetchEmails}
+                onClick={fetchThreads}
                 disabled={loading || serverStatus !== 'running'}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                 style={{height: '40px'}}
@@ -221,79 +252,57 @@ function App() {
               </button>
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                style={{height: '40px'}}
               >
                 Logout
               </button>
             </div>
           </div>
 
+          {/* Error Display */}
           {error && (
-            <div className="rounded-md bg-red-50 p-4 mb-6">
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
               <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800">{error}</h3>
+                  <p className="text-sm text-red-800">{error}</p>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <ul className="divide-y divide-gray-200">
-              {emails.map((email, index) => (
-                <li 
-                  key={index}
-                  onClick={() => setSelectedEmail(email)}
-                  className="cursor-pointer hover:bg-gray-50 transition-colors duration-150"
-                >
-                  <div className="px-4 py-3 sm:px-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center min-w-0 flex-1">
-                        <div className="flex-shrink-0 mr-3">
-                          {email.sender_photo ? (
-                            <img
-                              src={email.sender_photo}
-                              alt={email.sender}
-                              className={`w-8 h-8 rounded-full border ${email.sender_photo.includes('clearbit.com') ? 'bg-white p-1' : ''}`}
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold border">
-                              {email.sender.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-gray-900 truncate">
-                              {email.sender}
-                            </p>
-                            <div className="ml-2 flex-shrink-0 flex items-center space-x-2">
-                              <span className="text-sm text-gray-500">
-                                {formatDate(email.date)}
-                              </span>
-                              <button className="text-gray-400 hover:text-yellow-400">
-                                <StarIcon className="h-5 w-5" />
-                              </button>
-                            </div>
-                          </div>
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {email.subject}
-                          </p>
-                          <p className="text-sm text-gray-500 truncate">
-                            {email.snippet}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </li>
-              ))}
-              {emails.length === 0 && !loading && serverStatus === 'running' && (
-                <li className="px-4 py-4 sm:px-6 text-center text-gray-500">
-                  No emails to display. Click "Refresh Emails" to fetch your inbox.
-                </li>
-              )}
-            </ul>
+          {/* Email List */}
+          <div className="bg-white shadow overflow-hidden sm:rounded-md">
+            {loading ? (
+              <div className="px-4 py-8 text-center">
+                <div className="inline-flex items-center space-x-2">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                  <span className="text-gray-600">Loading threads...</span>
+                </div>
+              </div>
+            ) : (
+              <ul className="divide-y divide-gray-200">
+                {threads.map((thread) => (
+                  <li key={thread.threadId}>
+                    <EmailThread
+                      thread={thread}
+                      expandedThreads={expandedThreads}
+                      setExpandedThreads={setExpandedThreads}
+                    />
+                  </li>
+                ))}
+                {threads.length === 0 && !loading && serverStatus === 'running' && (
+                  <li className="px-4 py-4 sm:px-6 text-center text-gray-500">
+                    No emails to display. Click "Refresh Emails" to fetch your inbox.
+                  </li>
+                )}
+              </ul>
+            )}
           </div>
         </div>
       </div>

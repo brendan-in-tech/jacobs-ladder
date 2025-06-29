@@ -107,17 +107,17 @@ def check_new_emails():
             last_history_id = get_history_id(gmail_service)
             session['last_history_id'] = last_history_id
         
-        # Get new emails
-        new_emails = get_new_emails(gmail_service, last_history_id)
+        # Get new emails as threads
+        new_threads = get_new_emails(gmail_service, last_history_id)
         
         # Update last history ID
-        if new_emails:
+        if new_threads:
             current_history_id = get_history_id(gmail_service)
             session['last_history_id'] = current_history_id
         
         return jsonify({
-            'new_emails': new_emails,
-            'has_new': len(new_emails) > 0
+            'new_threads': new_threads,
+            'has_new': len(new_threads) > 0
         })
     except Exception as e:
         logger.error(f"Error checking new emails: {str(e)}")
