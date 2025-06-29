@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { EnvelopeIcon, PaperAirplaneIcon, CalendarIcon, StarIcon } from '@heroicons/react/24/outline'
 import EmailModal from './components/EmailModal'
+import EmailThread from './components/EmailThread'
 import Login from './components/Login'
 
 function App() {
-  const [emails, setEmails] = useState(() => {
+  const [emailData, setEmailData] = useState(() => {
     // Initialize from localStorage if available
-    const savedEmails = localStorage.getItem('emails')
-    return savedEmails ? JSON.parse(savedEmails) : []
+    const savedEmailData = localStorage.getItem('email_data')
+    return savedEmailData ? JSON.parse(savedEmailData) : { threads: [], individual_emails: [], total_count: 0 }
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -16,13 +17,23 @@ function App() {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [lastCheck, setLastCheck] = useState(Date.now())
+  const [expandedThreads, setExpandedThreads] = useState(() => {
+    // Initialize expanded threads from localStorage
+    const savedExpanded = localStorage.getItem('expanded_threads')
+    return savedExpanded ? JSON.parse(savedExpanded) : {}
+  })
 
-  // Save emails to localStorage whenever they change
+  // Save email data to localStorage whenever it changes
   useEffect(() => {
-    if (emails.length > 0) {
-      localStorage.setItem('emails', JSON.stringify(emails))
+    if (emailData.total_count > 0) {
+      localStorage.setItem('email_data', JSON.stringify(emailData))
     }
-  }, [emails])
+  }, [emailData])
+
+  // Save expanded threads to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('expanded_threads', JSON.stringify(expandedThreads))
+  }, [expandedThreads])
 
   // Poll for new emails every 30 seconds
   useEffect(() => {
@@ -44,14 +55,10 @@ function App() {
         }
 
         const data = await response.json()
-        if (data.has_new && data.new_emails) {
-          // Add new emails to the beginning of the list
-          setEmails(prevEmails => {
-            const newEmails = data.new_emails
-            const existingIds = new Set(prevEmails.map(email => email.id))
-            const uniqueNewEmails = newEmails.filter(email => !existingIds.has(email.id))
-            return [...uniqueNewEmails, ...prevEmails]
-          })
+        if (data.has_new && data.updated_threads) {
+          // For now, we'll refetch all emails when new emails arrive
+          // In a more sophisticated implementation, we'd merge new emails into existing data
+          fetchEmails()
         }
         setLastCheck(Date.now())
       } catch (err) {
@@ -63,16 +70,36 @@ function App() {
     return () => clearInterval(interval)
   }, [user])
 
-  // Clear emails from localStorage on logout
+  // Clear data from localStorage on logout
   const handleLogout = async () => {
     await fetch('http://localhost:5001/logout', {
       method: 'POST',
       credentials: 'include',
     })
     setUser(null)
-    setEmails([])
+    setEmailData({ threads: [], individual_emails: [], total_count: 0 })
     setSelectedEmail(null)
-    localStorage.removeItem('emails')
+    setExpandedThreads({})
+    localStorage.removeItem('email_data')
+    localStorage.removeItem('expanded_threads')
+  }
+
+  // Handle thread expansion/collapse
+  const handleToggleThreadExpanded = (threadId, isExpanded) => {
+    setExpandedThreads(prev => ({
+      ...prev,
+      [threadId]: isExpanded
+    }))
+  }
+
+  // Handle selecting a message from a thread
+  const handleSelectMessage = (message) => {
+    setSelectedEmail(message)
+  }
+
+  // Handle selecting an individual email
+  const handleSelectEmail = (email) => {
+    setSelectedEmail(email)
   }
 
   // Format date for email list
@@ -90,6 +117,20 @@ function App() {
       return emailDate.toLocaleDateString('en-US', { weekday: 'short' })
     } else {
       return emailDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+  }
+
+  // Format last refresh time
+  const formatLastRefresh = (timestamp) => {
+    if (!timestamp) return ''
+    const now = new Date()
+    const date = new Date(timestamp)
+    if (now.toDateString() === date.toDateString()) {
+      // Today: show time only
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    } else {
+      // Previous day: show date and time
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     }
   }
 
@@ -129,7 +170,7 @@ function App() {
         if (data.user) {
           setUser(data.user)
           // If we have a user but no emails, fetch them
-          if (emails.length === 0) {
+          if (emailData.total_count === 0) {
             fetchEmails()
           }
         }
@@ -142,7 +183,7 @@ function App() {
     setUser(user)
     setError(null)
     // If we have a user but no emails, fetch them
-    if (emails.length === 0) {
+    if (emailData.total_count === 0) {
       fetchEmails()
     }
   }
@@ -166,7 +207,8 @@ function App() {
       }
       
       const data = await response.json()
-      setEmails(data)
+      setEmailData(data)
+      setLastCheck(Date.now())
     } catch (err) {
       console.error('Error fetching emails:', err)
       if (err.message.includes('Failed to fetch')) {
@@ -176,6 +218,23 @@ function App() {
       }
     }
     setLoading(false)
+  }
+
+  // Combine and sort all items newest-first
+  const getSortedItems = () => {
+    const threads = emailData.threads.map(thread => ({
+      ...thread,
+      _type: 'thread',
+      _sortTimestamp: thread.latest_timestamp || 0
+    }))
+    const emails = emailData.individual_emails.map(email => ({
+      ...email,
+      _type: 'email',
+      _sortTimestamp: email.internalDate
+        ? parseInt(email.internalDate, 10)
+        : (email.date ? new Date(email.date).getTime() : 0)
+    }))
+    return [...threads, ...emails].sort((a, b) => b._sortTimestamp - a._sortTimestamp)
   }
 
   if (authLoading) {
@@ -197,6 +256,12 @@ function App() {
               <p className="text-sm text-gray-500 mt-0.5">
                 Server Status: {serverStatus === 'checking' ? 'Checking...' : 
                               serverStatus === 'running' ? 'Running' : 'Not Running'}
+                {emailData.total_count > 0 && (
+                  <span className="ml-2">• {emailData.total_count} total items</span>
+                )}
+                {lastCheck && (
+                  <span className="ml-2">• Last refreshed: {formatLastRefresh(lastCheck)}</span>
+                )}
               </p>
             </div>
             <div className="flex items-center space-x-4">
@@ -240,55 +305,66 @@ function App() {
 
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <ul className="divide-y divide-gray-200">
-              {emails.map((email, index) => (
-                <li 
-                  key={index}
-                  onClick={() => setSelectedEmail(email)}
-                  className="cursor-pointer hover:bg-gray-50 transition-colors duration-150"
-                >
-                  <div className="px-4 py-3 sm:px-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center min-w-0 flex-1">
-                        <div className="flex-shrink-0 mr-3">
-                          {email.sender_photo ? (
-                            <img
-                              src={email.sender_photo}
-                              alt={email.sender}
-                              className={`w-8 h-8 rounded-full border ${email.sender_photo.includes('clearbit.com') ? 'bg-white p-1' : ''}`}
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold border">
-                              {email.sender.charAt(0).toUpperCase()}
+              {getSortedItems().map((item) => (
+                <li key={item._type === 'thread' ? item.threadId : item.id}>
+                  {item._type === 'thread' ? (
+                    <EmailThread
+                      thread={item}
+                      onSelectMessage={handleSelectMessage}
+                      isExpanded={expandedThreads[item.threadId] || false}
+                      onToggleExpanded={handleToggleThreadExpanded}
+                      user={user}
+                    />
+                  ) : (
+                    <div
+                      onClick={() => handleSelectEmail(item)}
+                      className="cursor-pointer hover:bg-gray-50 transition-colors duration-150"
+                    >
+                      <div className="px-4 py-3 sm:px-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center min-w-0 flex-1">
+                            <div className="flex-shrink-0 mr-3">
+                              {item.sender_photo ? (
+                                <img
+                                  src={item.sender_photo}
+                                  alt={item.sender}
+                                  className={`w-8 h-8 rounded-full border ${item.sender_photo.includes('clearbit.com') ? 'bg-white p-1' : ''}`}
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold border">
+                                  {item.sender.charAt(0).toUpperCase()}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-gray-900 truncate">
-                              {email.sender}
-                            </p>
-                            <div className="ml-2 flex-shrink-0 flex items-center space-x-2">
-                              <span className="text-sm text-gray-500">
-                                {formatDate(email.date)}
-                              </span>
-                              <button className="text-gray-400 hover:text-yellow-400">
-                                <StarIcon className="h-5 w-5" />
-                              </button>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium text-gray-900 truncate">
+                                  {item.sender}
+                                </p>
+                                <div className="ml-2 flex-shrink-0 flex items-center space-x-2">
+                                  <span className="text-sm text-gray-500">
+                                    {formatDate(item.date)}
+                                  </span>
+                                  <button className="text-gray-400 hover:text-yellow-400">
+                                    <StarIcon className="h-5 w-5" />
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {item.subject}
+                              </p>
+                              <p className="text-sm text-gray-500 truncate">
+                                {item.snippet}
+                              </p>
                             </div>
                           </div>
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {email.subject}
-                          </p>
-                          <p className="text-sm text-gray-500 truncate">
-                            {email.snippet}
-                          </p>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </li>
               ))}
-              {emails.length === 0 && !loading && serverStatus === 'running' && (
+              {emailData.total_count === 0 && !loading && serverStatus === 'running' && (
                 <li className="px-4 py-4 sm:px-6 text-center text-gray-500">
                   No emails to display. Click "Refresh Emails" to fetch your inbox.
                 </li>
