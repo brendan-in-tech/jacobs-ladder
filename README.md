@@ -1,4 +1,143 @@
-# Gmail Fetcher Template
+# Jacobs Ladder - Gmail Client
+
+A modern, React-based Gmail client with intelligent email threading support.
+
+## Features
+
+- **Smart Email Threading**: Groups related emails using Gmail's threadId, but shows single messages as individual emails
+- **Newest-First Ordering**: Displays threads and messages in chronological order (newest first)
+- **Expandable Threads**: Click to expand/collapse multi-message conversations
+- **Thread Count Modal**: Detailed view of thread statistics and participants
+- **Persistent State**: Remembers expanded/collapsed state using localStorage
+- **Real-time Updates**: Polls for new emails every 30 seconds
+- **Profile Photos**: Shows sender profile photos from Google or company logos
+- **Modern UI**: Clean, responsive interface built with React and TailwindCSS
+
+## Email Threading Logic
+
+The application implements intelligent email threading:
+
+- **Multi-Message Threads**: Conversations with 2+ messages are displayed as expandable threads
+- **Single Messages**: Threads with only 1 message are shown as individual emails (not as threads)
+- **Thread Grouping**: Uses Gmail's `threadId` to group related messages
+- **Message Ordering**: Within each thread, messages are sorted newest to oldest
+- **Thread Indicators**: Shows message count and thread icon for multi-message conversations
+- **Participant Display**: Shows all participants in multi-message conversations
+- **Expand/Collapse**: Click thread headers to expand and view all messages
+- **State Persistence**: Expanded/collapsed state is saved to localStorage
+
+## Thread Count Modal
+
+Click the thread count button (chat bubble icon) to view detailed thread information:
+
+- **Message Count**: Total messages in the conversation
+- **Participants**: All email addresses involved in the thread
+- **Unique Senders**: Distinct list of people who sent messages
+- **Date Range**: Timeline of the conversation
+- **Attachments**: Total count across all messages
+- **Latest Message**: Preview of the most recent message
+
+## Technical Implementation
+
+### Backend (Python/Flask)
+- `fetch_emails()`: Fetches both threads and individual messages with smart deduplication
+- `get_thread_content()`: Processes thread data and sorts messages
+- `get_new_thread_updates()`: Handles real-time thread updates
+- `/fetch-emails` endpoint: Returns hybrid data structure
+- **Single Message Logic**: Threads with 1 message are converted to individual emails
+
+### Frontend (React)
+- `EmailThread` component: Displays multi-message threads with expand/collapse
+- `ThreadMessage` component: Shows individual messages within threads
+- `ThreadCountModal` component: Detailed thread statistics and information
+- Hybrid state management for threads and individual emails
+- Real-time updates via polling
+
+## Getting Started
+
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   npm install
+   ```
+
+2. Set up Google OAuth credentials in `credentials.json`
+
+3. Start the backend server:
+   ```bash
+   python backend.py
+   ```
+
+4. Start the frontend development server:
+   ```bash
+   npm run dev
+   ```
+
+5. Open http://localhost:5173 in your browser
+
+## API Endpoints
+
+- `GET /fetch-emails`: Fetch emails and threads with smart deduplication
+- `GET /check-new-emails`: Check for new thread updates
+- `GET /me`: Get current user information
+- `POST /logout`: Log out current user
+
+## Data Structure
+
+### API Response
+```javascript
+{
+  "threads": Thread[],           // Multi-message conversations only
+  "individual_emails": Email[],  // Single messages + individual emails
+  "total_count": number         // Total items (threads + individual emails)
+}
+```
+
+### Thread Object (Multi-message conversations)
+```javascript
+{
+  threadId: string,
+  subject: string,
+  participants: string[],
+  latest_snippet: string,
+  latest_timestamp: number,
+  message_count: number,        // Always > 1
+  messages: EmailMessage[],
+  latest_date: string,
+  latest_sender: string,
+  latest_sender_photo: string
+}
+```
+
+### Email Message Object
+```javascript
+{
+  id: string,
+  threadId: string,
+  sender: string,
+  sender_email: string,
+  sender_photo: string,
+  subject: string,
+  date: string,
+  snippet: string,
+  body: string,
+  attachments: Attachment[]
+}
+```
+
+## Display Logic
+
+1. **Multi-message threads** are shown as expandable thread components
+2. **Single-message threads** are converted to individual email items
+3. **Individual emails** (not part of any thread) are shown as email items
+4. **Threads are displayed first**, followed by individual emails
+5. **All items are sorted** by latest timestamp (newest first)
+
+## Browser Support
+
+- Modern browsers with ES6+ support
+- Requires JavaScript enabled
+- LocalStorage for state persistence
 
 ## 🚀 How to Use This as a Template
 

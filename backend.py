@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request, session, redirect, url_for
 from flask_cors import CORS
-from gmail_fetcher import fetch_emails, get_gmail_service, get_history_id, get_new_emails
+from gmail_fetcher import fetch_emails, fetch_threads, get_gmail_service, get_history_id, get_new_emails, get_new_thread_updates
 import logging
 import os
 from google_auth_oauthlib.flow import Flow
@@ -83,11 +83,25 @@ def get_emails():
     if not user:
         return jsonify({'error': 'Unauthorized'}), 401
     try:
-        emails = fetch_emails()
-        logger.debug(f"Successfully fetched {len(emails)} emails")
-        return jsonify(emails)
+        email_data = fetch_emails()
+        logger.debug(f"Successfully fetched {email_data.get('total_count', 0)} total items")
+        return jsonify(email_data)
     except Exception as e:
         logger.error(f"Error fetching emails: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/fetch-threads')
+def get_threads():
+    logger.debug("Received request to /fetch-threads")
+    user = session.get('user')
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        threads = fetch_threads()
+        logger.debug(f"Successfully fetched {len(threads)} threads")
+        return jsonify(threads)
+    except Exception as e:
+        logger.error(f"Error fetching threads: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/check-new-emails')
@@ -107,17 +121,17 @@ def check_new_emails():
             last_history_id = get_history_id(gmail_service)
             session['last_history_id'] = last_history_id
         
-        # Get new emails
-        new_emails = get_new_emails(gmail_service, last_history_id)
+        # Get new thread updates
+        updated_threads = get_new_thread_updates(gmail_service, last_history_id)
         
         # Update last history ID
-        if new_emails:
+        if updated_threads:
             current_history_id = get_history_id(gmail_service)
             session['last_history_id'] = current_history_id
         
         return jsonify({
-            'new_emails': new_emails,
-            'has_new': len(new_emails) > 0
+            'updated_threads': updated_threads,
+            'has_new': len(updated_threads) > 0
         })
     except Exception as e:
         logger.error(f"Error checking new emails: {str(e)}")
