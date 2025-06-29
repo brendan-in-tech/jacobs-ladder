@@ -70,8 +70,7 @@ A modern Gmail-like email client built with React and Flask, featuring email thr
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd jacobs-ladder
-   ```
+   cd gmail-template
 
 2. **Install dependencies**
    ```bash

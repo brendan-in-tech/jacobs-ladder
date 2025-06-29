@@ -283,7 +283,7 @@ def fetch_threads(max_results=10):
         
         # Get list of threads
         results = gmail_service.users().threads().list(
-            userId='me', maxResults=max_results).execute()
+            userId='me', maxResults=max_results, labelIds=['INBOX']).execute()
         threads = results.get('threads', [])
         
         if not threads:

@@ -17,11 +17,7 @@ function App() {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [lastCheck, setLastCheck] = useState(Date.now())
-  const [expandedThreads, setExpandedThreads] = useState(() => {
-    // Initialize expanded threads from localStorage
-    const savedExpanded = localStorage.getItem('expanded_threads')
-    return savedExpanded ? JSON.parse(savedExpanded) : []
-  })
+  const [expandedThreads, setExpandedThreads] = useState([])
 
   // Save threads to localStorage whenever they change
   useEffect(() => {
@@ -29,11 +25,6 @@ function App() {
       localStorage.setItem('email_threads', JSON.stringify(threads))
     }
   }, [threads])
-
-  // Save expanded threads to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('expanded_threads', JSON.stringify(expandedThreads))
-  }, [expandedThreads])
 
   // Poll for new emails every 30 seconds
   useEffect(() => {
@@ -85,7 +76,6 @@ function App() {
     setSelectedEmail(null)
     setExpandedThreads([])
     localStorage.removeItem('email_threads')
-    localStorage.removeItem('expanded_threads')
   }
 
   // Format date for email list
@@ -141,10 +131,8 @@ function App() {
       .then(data => {
         if (data.user) {
           setUser(data.user)
-          // If we have a user but no threads, fetch them
-          if (threads.length === 0) {
-            fetchThreads()
-          }
+          // Always fetch threads after login
+          fetchThreads()
         }
         setAuthLoading(false)
       })
@@ -154,10 +142,8 @@ function App() {
   const handleLogin = (user) => {
     setUser(user)
     setError(null)
-    // If we have a user but no threads, fetch them
-    if (threads.length === 0) {
-      fetchThreads()
-    }
+    // Always fetch threads after login
+    fetchThreads()
   }
 
   const fetchThreads = async () => {
@@ -282,7 +268,7 @@ function App() {
               <div className="px-4 py-8 text-center">
                 <div className="inline-flex items-center space-x-2">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                  <span className="text-gray-600">Loading threads...</span>
+                  <span className="text-gray-600">Loading mail...</span>
                 </div>
               </div>
             ) : (

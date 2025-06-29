@@ -32,6 +32,7 @@ const EmailThread = ({ thread, expandedThreads, setExpandedThreads }) => {
     if (!date) return ''
     const now = new Date()
     const emailDate = new Date(parseInt(date))
+    if (isNaN(emailDate.getTime())) return ''
     const diffDays = Math.floor((now - emailDate) / (1000 * 60 * 60 * 24))
     if (diffDays === 0) {
       return emailDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true })
