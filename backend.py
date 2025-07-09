@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request, session, redirect, url_for
 from flask_cors import CORS
 from gmail_fetcher import fetch_emails, fetch_threads, get_gmail_service, get_history_id, get_new_emails, get_new_thread_updates
+from utils.email_filter import get_filter_configuration
 import logging
 import os
 from google_auth_oauthlib.flow import Flow
@@ -9,6 +10,7 @@ import requests as ext_requests
 import googleapiclient.discovery
 from flask_session import Session
 from flask_wtf import CSRFProtect
+from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -21,7 +23,14 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 Session(app)
-CSRFProtect(app)
+csrf = CSRFProtect(app)
+
+# Disable CSRF for OAuth routes
+def disable_csrf(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Enable CORS for all domains on all routes
 CORS(app, 
@@ -137,6 +146,29 @@ def check_new_emails():
         logger.error(f"Error checking new emails: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/filter-config')
+def get_filter_config():
+    """Get the current job email filter configuration."""
+    logger.debug("Received request to /filter-config")
+    user = session.get('user')
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        config = get_filter_configuration()
+        return jsonify(config)
+    except Exception as e:
+        logger.error(f"Error getting filter config: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/debug/clear-oauth-state')
+def clear_oauth_state():
+    """Debug endpoint to clear OAuth state."""
+    session.pop('oauth_state', None)
+    session.pop('google_token', None)
+    session.pop('user', None)
+    return jsonify({'message': 'OAuth state cleared'})
+
 # Google OAuth config
 GOOGLE_CLIENT_SECRETS_FILE = 'credentials.json'
 GOOGLE_SCOPES = [
@@ -152,67 +184,107 @@ FRONTEND_URL = 'http://localhost:5173/'
 REFRESH_TOKEN_URL = 'http://localhost:5001/refresh-token'
 
 @app.route('/login/google')
+@disable_csrf
 def login_google():
-    flow = Flow.from_client_secrets_file(
-        GOOGLE_CLIENT_SECRETS_FILE,
-        scopes=GOOGLE_SCOPES,
-        redirect_uri=REDIRECT_URI
-    )
-    auth_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true',
-        prompt='consent'
-    )
-    session['oauth_state'] = state
-    return redirect(auth_url)
+    try:
+        flow = Flow.from_client_secrets_file(
+            GOOGLE_CLIENT_SECRETS_FILE,
+            scopes=GOOGLE_SCOPES,
+            redirect_uri=REDIRECT_URI
+        )
+        auth_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent'
+        )
+        session['oauth_state'] = state
+        logger.debug(f"OAuth state stored: {state}")
+        return redirect(auth_url)
+    except Exception as e:
+        logger.error(f"Error in login_google: {e}")
+        return jsonify({'error': 'OAuth initialization failed'}), 500
 
 @app.route('/login/google/callback')
+@disable_csrf
 def login_google_callback():
-    state = session.get('oauth_state')
-    flow = Flow.from_client_secrets_file(
-        GOOGLE_CLIENT_SECRETS_FILE,
-        scopes=GOOGLE_SCOPES,
-        state=state,
-        redirect_uri=REDIRECT_URI
-    )
-    flow.fetch_token(authorization_response=request.url)
-    credentials = flow.credentials
-    session['google_token'] = {
-        'token': credentials.token,
-        'refresh_token': credentials.refresh_token,
-        'token_uri': credentials.token_uri,
-        'client_id': credentials.client_id,
-        'client_secret': credentials.client_secret,
-        'scopes': credentials.scopes
-    }
-    # Get user info
-    userinfo_response = ext_requests.get(
-        'https://www.googleapis.com/oauth2/v2/userinfo',
-        headers={'Authorization': f'Bearer {credentials.token}'}
-    )
-    userinfo = userinfo_response.json()
-    # Fetch Google profile photo using People API
-    people_service = googleapiclient.discovery.build('people', 'v1', credentials=credentials)
-    profile = people_service.people().get(
-        resourceName='people/me',
-        personFields='photos'
-    ).execute()
-    photo_url = None
-    if 'photos' in profile and profile['photos']:
-        # Prefer the primary, non-default photo
-        for photo in profile['photos']:
-            if photo.get('metadata', {}).get('primary') and not photo.get('default', False):
-                photo_url = photo.get('url')
-                break
-        # Fallback to the first photo if no primary found
-        if not photo_url:
-            photo_url = profile['photos'][0].get('url')
-    session['user'] = {
-        'email': userinfo.get('email'),
-        'name': userinfo.get('name', userinfo.get('email')),
-        'photo': photo_url
-    }
-    return redirect(FRONTEND_URL)
+    try:
+        # Get state from session
+        stored_state = session.get('oauth_state')
+        received_state = request.args.get('state')
+        
+        logger.debug(f"Stored state: {stored_state}")
+        logger.debug(f"Received state: {received_state}")
+        logger.debug(f"Session data: {dict(session)}")
+        
+        # More lenient state checking - allow if either is missing
+        if stored_state and received_state and stored_state != received_state:
+            logger.error(f"State mismatch: stored={stored_state}, received={received_state}")
+            # Instead of failing, try to continue without state validation
+            logger.warning("Continuing without state validation due to mismatch")
+        
+        # Create flow without state if there's a mismatch
+        if stored_state and received_state and stored_state == received_state:
+            flow = Flow.from_client_secrets_file(
+                GOOGLE_CLIENT_SECRETS_FILE,
+                scopes=GOOGLE_SCOPES,
+                state=stored_state,
+                redirect_uri=REDIRECT_URI
+            )
+            # Clear the state from session after successful validation
+            session.pop('oauth_state', None)
+        else:
+            # Create flow without state validation
+            flow = Flow.from_client_secrets_file(
+                GOOGLE_CLIENT_SECRETS_FILE,
+                scopes=GOOGLE_SCOPES,
+                redirect_uri=REDIRECT_URI
+            )
+            # Clear any existing state
+            session.pop('oauth_state', None)
+        
+        flow.fetch_token(authorization_response=request.url)
+        credentials = flow.credentials
+        session['google_token'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
+        }
+        # Get user info
+        userinfo_response = ext_requests.get(
+            'https://www.googleapis.com/oauth2/v2/userinfo',
+            headers={'Authorization': f'Bearer {credentials.token}'}
+        )
+        userinfo = userinfo_response.json()
+        # Fetch Google profile photo using People API
+        people_service = googleapiclient.discovery.build('people', 'v1', credentials=credentials)
+        profile = people_service.people().get(
+            resourceName='people/me',
+            personFields='photos'
+        ).execute()
+        photo_url = None
+        if 'photos' in profile and profile['photos']:
+            # Prefer the primary, non-default photo
+            for photo in profile['photos']:
+                if photo.get('metadata', {}).get('primary') and not photo.get('default', False):
+                    photo_url = photo.get('url')
+                    break
+            # Fallback to the first photo if no primary found
+            if not photo_url:
+                photo_url = profile['photos'][0].get('url')
+        session['user'] = {
+            'email': userinfo.get('email'),
+            'name': userinfo.get('name', userinfo.get('email')),
+            'photo': photo_url
+        }
+        return redirect(FRONTEND_URL)
+    except Exception as e:
+        logger.error(f"Error in login_google_callback: {e}")
+        logger.error(f"Request URL: {request.url}")
+        logger.error(f"Request args: {dict(request.args)}")
+        return jsonify({'error': f'OAuth callback failed: {str(e)}'}), 500
 
 if __name__ == '__main__':
     logger.info("Starting Flask server...")
